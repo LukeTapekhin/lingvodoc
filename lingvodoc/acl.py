@@ -11,6 +11,9 @@ from .models import (
 
 from pyramid.security import forget
 
+import logging
+log = logging.getLogger(__name__)
+
 
 def groupfinder(client_id, request):
     if not client_id:
@@ -23,14 +26,21 @@ def groupfinder(client_id, request):
         return None
     if not user:
         return None
+
     grouplist = []
+    if user.id == 1:
+        grouplist.append('Admin')
     for group in user.groups:
         base_group = DBSession.query(BaseGroup).filter(BaseGroup.id == group.base_group_id).first()
         if group.subject_override:
             group_name = base_group.action + ":" + base_group.subject + ":" + str(group.subject_override)
         else:
-            group_name = base_group.action + ":" + base_group.subject \
-                         + ":" + str(group.subject_client_id) + ":" + str(group.subject_object_id)
+            if group.subject_client_id:
+                group_name = base_group.action + ":" + base_group.subject \
+                             + ":" + str(group.subject_client_id) + ":" + str(group.subject_object_id)
+            else:
+                 group_name = base_group.action + ":" + base_group.subject \
+                             + ":" + str(group.subject_object_id)
         grouplist.append(group_name)
     for org in user.organizations:
         for group in org.groups:
@@ -40,8 +50,8 @@ def groupfinder(client_id, request):
             else:
                 group_name = base_group.action + ":" + base_group.subject \
                              + ":" + str(group.subject_client_id) + ":" + str(group.subject_object_id)
-        grouplist.append(group_name)
-    #print("GROUPLIST", grouplist)
+            grouplist.append(group_name)
+    log.debug("GROUPLIST: %s", grouplist)
     return grouplist
 
 

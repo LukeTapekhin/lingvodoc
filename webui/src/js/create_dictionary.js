@@ -12,12 +12,12 @@ app.config(function ($stateProvider, $urlRouterProvider) {
 
         .state('create.step1', {
             url: '/step1',
-            templateUrl: 'createDictionaryStep1.html',
+            templateUrl: 'createDictionaryStep1.html'
         })
 
         .state('create.step2', {
             url: '/step2',
-            templateUrl: 'createDictionaryStep2.html',
+            templateUrl: 'createDictionaryStep2.html'
         })
 
         .state('create.step3', {
@@ -49,67 +49,6 @@ app.controller('CreateDictionaryController', ['$scope', '$http', '$modal', '$int
     $scope.users = [];
     $scope.userLogins = [];
     $scope.uploadedDictionaries = [];
-
-
-    var wrapPerspective = function (perspective) {
-
-        if (typeof perspective.fields == 'undefined') {
-            return;
-        }
-
-        for (var i = 0; i < perspective.fields.length; i++) {
-            if (typeof perspective.fields[i].group !== 'undefined') {
-                perspective.fields[i]._groupEnabled = true;
-            }
-
-            if (typeof perspective.fields[i].contains !== 'undefined') {
-                perspective.fields[i]._containsEnabled = true;
-            }
-        }
-
-        return perspective;
-    };
-
-    var exportPerpective = function(perspective) {
-      var jsPerspective = {
-          'fields': []
-      };
-
-        var positionCount = 1;
-        for (var i = 0; i < perspective.fields.length; i++) {
-
-            var field = JSON.parse(JSON.stringify(perspective.fields[i]));
-
-            field['position'] = positionCount;
-            positionCount += 1;
-
-            if (field.data_type !== 'grouping_tag') {
-                field['level'] = 'leveloneentity';
-            } else {
-                field['level'] = 'groupingentity';
-            }
-
-            if (field._groupEnabled) {
-                delete field._groupEnabled;
-            }
-
-
-            if (field._containsEnabled) {
-                delete field._containsEnabled;
-            }
-
-            if (field.contains) {
-                for (var j = 0; j < field.contains.length; j++) {
-                    field.contains[j].level = 'leveltwoentity';
-                    field.contains[j].position = positionCount;
-                    positionCount += 1;
-                }
-            }
-            jsPerspective.fields.push(field);
-        }
-
-        return jsPerspective;
-    };
 
 
     var flatLanguages = function (languages) {
@@ -180,7 +119,7 @@ app.controller('CreateDictionaryController', ['$scope', '$http', '$modal', '$int
     };
 
     $scope.addField = function () {
-        $scope.perspective.fields.push({'entity_type': '', 'data_type': 'text', 'status': 'enabled'});
+        $scope.perspective.fields.push({'entity_type': '', 'entity_type_translation': '', 'data_type': 'text', 'data_type_translation': 'text', 'status': 'enabled'});
     };
 
     $scope.enableGroup = function (fieldIndex) {
@@ -195,7 +134,9 @@ app.controller('CreateDictionaryController', ['$scope', '$http', '$modal', '$int
         if (typeof $scope.perspective.fields[fieldIndex].contains === 'undefined') {
             $scope.perspective.fields[fieldIndex].contains = [{
                 'entity_type': '',
+                'entity_type_translation': '',
                 'data_type': 'markup',
+                'data_type_translation': 'markup',
                 'status': 'enabled'
             }];
         } else {
@@ -216,7 +157,7 @@ app.controller('CreateDictionaryController', ['$scope', '$http', '$modal', '$int
             var dictionaryObj = {
                 'parent_client_id': language.client_id,
                 'parent_object_id': language.object_id,
-                'name': $scope.dictionaryData.name,
+                'translation_string': $scope.dictionaryData.name,
                 'translation': $scope.dictionaryData.name
             };
 
@@ -268,7 +209,7 @@ app.controller('CreateDictionaryController', ['$scope', '$http', '$modal', '$int
 
         var createPerspectiveUrl = '/dictionary/' + encodeURIComponent($scope.dictionaryData.dictionary_client_id) + '/' + encodeURIComponent($scope.dictionaryData.dictionary_object_id) + '/' + 'perspective';
         var perspectiveObj = {
-            'name': $scope.dictionaryData.perspectiveName,
+            'translation_string': $scope.dictionaryData.perspectiveName,
             'translation': $scope.dictionaryData.perspectiveName
         };
 
@@ -279,7 +220,7 @@ app.controller('CreateDictionaryController', ['$scope', '$http', '$modal', '$int
                 $scope.dictionaryData.perspective_object_id = data.object_id;
                 var setFieldsUrl = '/dictionary/' + encodeURIComponent($scope.dictionaryData.dictionary_client_id) + '/' + encodeURIComponent($scope.dictionaryData.dictionary_object_id) + '/perspective/' + encodeURIComponent($scope.dictionaryData.perspective_client_id) + '/' + encodeURIComponent($scope.dictionaryData.perspective_object_id) + '/fields';
 
-                $http.post(setFieldsUrl, exportPerpective($scope.perspective)).success(function(data, status, headers, config) {
+                $http.post(setFieldsUrl, exportPerspective($scope.perspective)).success(function(data, status, headers, config) {
                     window.location = '/dashboard';
                 }).error(function(data, status, headers, config) {
                     alert('Failed to create perspective!');
@@ -322,7 +263,6 @@ app.controller('CreateDictionaryController', ['$scope', '$http', '$modal', '$int
     // Load data from backend
 
     // Load list of languages
-    // Reload list every 3 seconds
     var loadLanguages = function() {
         $http.get(languagesUrl).success(function (data, status, headers, config) {
             $scope.languages = flatLanguages(data.languages);
@@ -342,7 +282,8 @@ app.controller('CreateDictionaryController', ['$scope', '$http', '$modal', '$int
                 $http.get(url).success((function (perspective) {
                     return function(data, status, headers, config) {
                         var p = { };
-                        p.name = perspective.name;
+                        p.translation = perspective.translation;
+                        p.translation_string = perspective.translation_string;
                         p.object_id = perspective.object_id;
                         p.client_id = perspective.client_id;
                         p.fields = data.fields;
@@ -396,9 +337,6 @@ app.controller('CreateDictionaryController', ['$scope', '$http', '$modal', '$int
             }
         }
     });
-
-
-
 
     loadLanguages();
     loadPerspectives();
