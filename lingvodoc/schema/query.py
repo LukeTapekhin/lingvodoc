@@ -66,7 +66,8 @@ from lingvodoc.schema.gql_lexicalentry import (
     LexicalEntry,
     CreateLexicalEntry,
     DeleteLexicalEntry,
-    BulkCreateLexicalEntry
+    BulkCreateLexicalEntry,
+    ConnectLexicalEntries
 )
 
 from lingvodoc.schema.gql_language import (
@@ -96,6 +97,10 @@ from lingvodoc.schema.gql_grant import (
     UpdateGrant,
     # DeleteGrant
 )
+from lingvodoc.schema.gql_sync import (
+    DownloadDictionary
+)
+
 # from lingvodoc.schema.gql_email import (
 #     Email
 # )
@@ -141,7 +146,8 @@ from lingvodoc.models import (
     UserRequest as dbUserRequest,
     Grant as dbGrant,
     DictionaryPerspective as dbDictionaryPerspective,
-    Client
+    Client,
+    PublishingEntity as dbPublishingEntity
 )
 from pyramid.request import Request
 
@@ -163,15 +169,28 @@ from pyramid.security import authenticated_userid
 
 from lingvodoc.utils.phonology import phonology as utils_phonology
 from lingvodoc.utils import starling_converter
-from lingvodoc.utils.search import translation_gist_search, recursive_sort, eaf_words, fulfill_permissions_on_perspectives, FakeObject
+from lingvodoc.utils.search import translation_gist_search, recursive_sort, eaf_words, find_all_tags, find_lexical_entries_by_tags
 from lingvodoc.cache.caching import TaskStatus
 RUSSIAN_LOCALE = 1
 ENGLISH_LOCALE = 2
 
 
+
+
+
+
+# def have_tag(lex, tags, field_client_id, field_object_id):
+#     return bool([x for x in lex if x.field_client_id == field_client_id and x.field_object_id == field_object_id and x.content in tags and x.published and x.accepted])
+
+
+
+
+
 #Category = graphene.Enum('Category', [('corpus', 0), ('dictionary', 1)])
 
-
+class LexicalEntriesAndEntities(graphene.ObjectType):
+    entities = graphene.List(Entity)
+    lexical_entries = graphene.List(LexicalEntry)
 
 class Permissions(graphene.ObjectType):
     edit = graphene.List(DictionaryPerspective)
@@ -255,7 +274,7 @@ class Query(graphene.ObjectType):
         maybe_tier_list=graphene.List(graphene.String),
         maybe_tier_set=graphene.List(graphene.String),
         synchronous=graphene.Boolean())
-
+    connected_words = graphene.Field(LexicalEntriesAndEntities, id=LingvodocID(required=True), field_id = LingvodocID(required=True), mode=graphene.String())
     advanced_search = graphene.Field(AdvancedSearch,
                                      languages=graphene.List(LingvodocID),
                                      tag_list=LingvodocID(),
@@ -541,13 +560,14 @@ class Query(graphene.ObjectType):
         else:
             if not dbdicts:
                 dbdicts = DBSession.query(dbDictionary).filter(dbDictionary.marked_for_deletion == False)
-            user = DBSession.query(dbUser).filter_by(id=client.user_id).first()
+
         if category is not None:
             if category:
                 dbdicts = dbdicts.filter(dbDictionary.category == 1)
             else:
                 dbdicts = dbdicts.filter(dbDictionary.category == 0)
         if mode is not None:
+            user = DBSession.query(dbUser).filter_by(id=client.user_id).first()
             if mode:
                 # available
                 clients = DBSession.query(Client).filter(Client.user_id.in_([user.id])).all()  # user,id?
@@ -600,7 +620,7 @@ class Query(graphene.ObjectType):
     def resolve_dictionary(self, info, id):
         return Dictionary(id=id)
 
-    def resolve_perspectives(self,info, published):
+    def resolve_perspectives(self,info, published=None):
         """
         example:
 
@@ -1357,6 +1377,56 @@ class Query(graphene.ObjectType):
     #     starling_converter.convert(info, starling_dictionaries, cache_kwargs, sqlalchemy_url, task.key)
     #     return True
 
+    def resolve_connected_words(self, info, id, field_id, mode=None):
+        response = list()
+        client_id = id[0]
+        object_id = id[1]
+        field_client_id = field_id[0]
+        field_object_id = field_id[1]
+        if mode == 'all':
+            publish = None
+            accept = True
+        elif mode == 'published':
+            publish = True
+            accept = True
+        elif mode == 'not_accepted':
+            publish = None
+            accept = False
+        elif mode == 'deleted':
+            publish = None
+            accept = None
+        elif mode == 'all_with_deleted':
+            publish = None
+            accept = None
+        else:
+            raise ResponseError(message="mode: <all|published|not_accepted>")
+        lexical_entry = DBSession.query(dbLexicalEntry).filter_by(client_id=client_id, object_id=object_id).first()
+        if not lexical_entry or lexical_entry.marked_for_deletion:
+            raise ResponseError(message="No such lexical entry in the system")
+        tags = find_all_tags(lexical_entry, field_client_id, field_object_id, accept)
+        lexes = find_lexical_entries_by_tags(tags, field_client_id, field_object_id, accept)
+        lexes_composite_list = [(lex.client_id, lex.object_id, lex.parent_client_id, lex.parent_object_id)
+                                for lex in lexes]
+        entities = dbLexicalEntry.graphene_track_multiple(lexes_composite_list,
+                                                   publish=publish, accept=accept)
+
+        def graphene_entity(cur_entity, cur_publishing):
+            ent = Entity(id = (cur_entity.client_id, cur_entity.object_id))
+            ent.dbObject = cur_entity
+            ent.publishingentity = cur_publishing
+            return ent
+
+        def graphene_obj(dbobj, cur_cls):
+            obj = cur_cls(id=(dbobj.client_id, dbobj.object_id))
+            obj.dbObject = dbobj
+            return obj
+
+        entities = [graphene_entity(entity[0], entity[1]) for entity in entities]
+        lexical_entries = [graphene_obj(lex, LexicalEntry) for lex in lexes]
+        return LexicalEntriesAndEntities(entities=entities, lexical_entries=lexical_entries)
+
+
+
     def resolve_eaf_wordlist(self, info, id):
         # TODO: delete
         import tempfile
@@ -1564,6 +1634,7 @@ class MyMutations(graphene.ObjectType):
     create_lexicalentry = CreateLexicalEntry.Field()
     delete_lexicalentry = DeleteLexicalEntry.Field()
     bulk_create_lexicalentry = BulkCreateLexicalEntry.Field()
+    connect_lexical_entries = ConnectLexicalEntries.Field()
     create_perspective = CreateDictionaryPerspective.Field()
     update_perspective = UpdateDictionaryPerspective.Field()
     update_perspective_status = UpdatePerspectiveStatus.Field()
@@ -1584,6 +1655,7 @@ class MyMutations(graphene.ObjectType):
     participate_org = ParticipateOrg.Field()
     accept_userrequest = AcceptUserRequest.Field()
     #delete_userrequest = DeleteUserRequest.Field()
+    download_dictionary = DownloadDictionary.Field()
 
 schema = graphene.Schema(query=Query, auto_camelcase=False, mutation=MyMutations)
 

@@ -420,6 +420,17 @@ def main_get(request):
     return render_to_response('templates/main.pt', variables, request=request)
 
 
+@view_config(route_name='new_interface', renderer='templates/new_interface.pt', request_method='GET')
+def new_interface(request):
+    """
+    Temporary view for the new React-based interface.
+    """
+
+    # Patterned after the 'main' view, see function 'main_get' in lingvodoc.views.v2.
+
+    return render_to_response('templates/new_interface.pt', {}, request = request)
+
+
 @view_config(route_name='all_statuses', renderer='json', request_method='GET')
 def all_statuses(request):
     from pyramid.request import Request
@@ -886,8 +897,9 @@ def graphql(request):
                                     variable_values=variable_values)
             if result.errors:
                 for error in result.errors:
-                    if type(error.original_error) == ProxyPass:
-                        return json.loads(error.original_error.response_body.decode("utf-8") )
+                    if hasattr(error, 'original_error'):
+                        if type(error.original_error) == ProxyPass:
+                            return json.loads(error.original_error.response_body.decode("utf-8") )
             if result.invalid:
                 return {'errors': [str(e) for e in result.errors]}
             if result.errors:
